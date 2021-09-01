@@ -51,15 +51,32 @@ ORDER BY po DESC;
 -- 5. Find the average number of strikeouts per game by decade since 1920. 
 --Round the numbers you report to 2 decimal places. 
 --Do the same for home runs per game. Do you see any trends?
-						-- TREND: As games progressed, there was an increase in both so's and hr's. 
-SELECT g, ROUND(AVG(b.so),2) AS avg_so,
-	ROUND(AVG(b.hr),2) AS avg_hr
+						-- TREND: As time progressed, there was an increase in both so's and hr's. 
+SELECT 
+	decade, 
+	ROUND((avg_so/g),2) AS avg_so_per_game,
+	ROUND((avg_hr/g),2) AS avg_hr_per_game
+FROM
+	(SELECT g,
+	ROUND(AVG(b.so),2) AS avg_so,
+	ROUND(AVG(b.hr),2) AS avg_hr,
+	CASE WHEN yearid BETWEEN 1920 AND 1930 THEN 1920
+		WHEN yearid BETWEEN 1930 AND 1940 THEN 1930
+		WHEN yearid BETWEEN 1940 AND 1950 THEN 1940
+		WHEN yearid BETWEEN 1950 AND 1960 THEN 1950
+		WHEN yearid BETWEEN 1960 AND 1970 THEN 1960
+		WHEN yearid BETWEEN 1970 AND 1980 THEN 1970
+		WHEN yearid BETWEEN 1980 AND 1990 THEN 1980
+		WHEN yearid BETWEEN 1990 AND 2000 THEN 1990
+		WHEN yearid BETWEEN 2000 AND 2010 THEN 2000
+		WHEN yearid BETWEEN 2010 AND 2020 THEN 2010
+		END AS decade
 FROM batting as b
 WHERE yearid >= 1920
-GROUP BY g
-ORDER BY avg_so;
+GROUP BY decade, g) AS subquery
+GROUP BY decade, avg_so
+ORDER BY decade;
 
-SELECT * FROM batting;
 
 
 -- 6. Find the player who had the most success stealing bases in 2016, 
@@ -76,6 +93,7 @@ FROM people AS p
 LEFT JOIN batting AS b
 ON p.playerid = b.playerid
 WHERE sb > 0
+ AND yearid = 2016
 GROUP BY p.namegiven, b.sb
 ) AS sub
 WHERE 20 <= attempts
@@ -106,24 +124,107 @@ AND yearid BETWEEN 1970 AND 2016
 GROUP BY name, w, wswin, yearid
 ORDER BY w) AS sub
 WHERE yearid <> 1981;
--- 7c. How often from 1970 – 2016 was it the case that a team with the most wins 
---also won the world series? What percentage of the time?
-SELECT yearid,
-	CASE WHEN wswin='Y' AND 
-	--------------------------Here, trying to figure out this one.
-
-
+-- 7c. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? 
+SELECT team_name, yearid, MAX(w) OVER(PARTITION BY yearid) AS wins_per_year, wswin
+FROM
+(SELECT t.name AS team_name, w, wswin, yearid
+FROM teams AS t
+WHERE wswin = 'Y'
+AND yearid BETWEEN 1970 AND 2016
+GROUP BY name, w, wswin, yearid
+ORDER BY w) AS sub
+WHERE yearid <> 1981;
+--What percentage of the time?
+SELECT CAST((SELECT COUNT(*)
+			FROM (SELECT team_name, 
+				  yearid, 
+				  MAX(w) OVER(PARTITION BY yearid) AS wins_per_year, 
+				  wswin
+				FROM
+				(SELECT t.name AS team_name, w, wswin, yearid
+					FROM teams AS t
+					WHERE wswin = 'Y'
+					AND yearid BETWEEN 1970 AND 2016
+					GROUP BY name, w, wswin, yearid
+					ORDER BY w) AS sub1
+			WHERE yearid <> 1981) AS subquery) AS float) /
+		CAST((
+		SELECT COUNT(DISTINCT yearid) AS total_years
+			FROM teams
+			WHERE yearid BETWEEN 1970 AND 2016
+		) AS float) AS perc_time;
 -- 8. Using the attendance figures from the homegames table, 
 --find the teams and parks which had the top 5 average attendance per game 
----in 2016 (where average attendance is defined as total attendance divided by number of games). 
+---in 2016 (where average attendance is defined as total attendance divided by number of games).
+SELECT t.name AS team_name, p.park_name AS ballpark, AVG(hg.attendance) AS avg_attendance 
+FROM homegames AS hg
+LEFT JOIN teams AS t
+ON hg.team = t.teamid
+LEFT JOIN parks AS p
+ON p.park = hg.park
+WHERE yearid = 2016
+GROUP BY team_name, ballpark
+ORDER BY avg_attendance DESC
+LIMIT 5;
 --Only consider parks where there were at least 10 games played. 
+SELECT t.name AS team_name, p.park_name AS ballpark, AVG(hg.attendance) AS avg_attendance 
+FROM homegames AS hg
+LEFT JOIN teams AS t
+ON hg.team = t.teamid
+LEFT JOIN parks AS p
+ON p.park = hg.park
+WHERE yearid = 2016
+AND 10 <= games
+GROUP BY team_name, ballpark
+ORDER BY avg_attendance DESC
+LIMIT 5;
 --Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.
+SELECT t.name AS team_name, p.park_name AS ballpark, AVG(hg.attendance) AS avg_attendance 
+FROM homegames AS hg
+LEFT JOIN teams AS t
+ON hg.team = t.teamid
+LEFT JOIN parks AS p
+ON p.park = hg.park
+WHERE yearid = 2016
+AND 10 <= games
+GROUP BY team_name, ballpark
+ORDER BY avg_attendance
+LIMIT 5;
 
 
 -- 9. Which managers have won the TSN Manager of the Year award in both the 
 --National League (NL) and the American League (AL)? 
+SELECT am.playerid
+FROM awardsmanagers AS am
+LEFT JOIN 
+	(SELECT playerid, awardid, lgid
+		FROM awardsmanagers
+		WHERE lgid = 'NL'
+		AND awardid = 'TSN Manager of the Year') AS nl_mgr
+ON nl_mgr.playerid = am.playerid
+WHERE am.lgid = 'AL'
+AND am.awardid = 'TSN Manager of the Year'
+GROUP BY am.playerid;
 --Give their full name and the teams that they were managing when they won the award.
-
+SELECT CONCAT(p.namefirst,' ',p.namelast) AS mgr_name, am.yearid, t.name
+FROM awardsmanagers AS am
+LEFT JOIN 
+	(SELECT playerid, awardid, lgid, yearid
+		FROM awardsmanagers
+		WHERE lgid = 'NL'
+		AND awardid = 'TSN Manager of the Year') AS nl_mgr
+ON nl_mgr.playerid = am.playerid AND nl_mgr.yearid = am.yearid
+LEFT JOIN people AS p
+ON am.playerid = p.playerid
+LEFT JOIN appearances AS a
+ON p.playerid = a.playerid
+LEFT JOIN teams AS t
+ON a.teamid = t.teamid AND am.yearid = t.yearid
+WHERE am.lgid = 'AL'
+AND am.awardid = 'TSN Manager of the Year'
+AND t.name IS NOT NULL
+GROUP BY mgr_name, am.yearid, t.name
+ORDER BY am.yearid;
 
 -- Open-ended questions
 
