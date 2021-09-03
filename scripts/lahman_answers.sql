@@ -1,6 +1,6 @@
 -- 1. What range of years for baseball games played does the provided database cover?
 SELECT MAX(yearid),MIN(yearid)
-FROM salaries;
+FROM appearances; --could have used teams as well
 
 
 -- 2a. Find the name and height of the shortest player in the database. 
@@ -9,27 +9,33 @@ FROM people
 ORDER BY height
 LIMIT 1; 
 -- 2b. How many games did he play in? What is the name of the team for which he played?
-SELECT teamid, COUNT(*) AS n_games
-FROM appearances
+SELECT t.name, COUNT(*) AS n_games
+FROM appearances AS a
+INNER JOIN teams AS t
+ON a.teamid = t.teamid
 WHERE playerid = 'gaedeed01'
-GROUP BY teamid;
+GROUP BY t.name;
 
 
 -- 3. Find all players in the database who played at Vanderbilt University. 
 -- Create a list showing each player’s first and last names as well as the total salary 
 --they earned in the major leagues. Sort this list in descending order by the total salary earned. 
 -- Which Vanderbilt player earned the most money in the majors?
-SELECT DISTINCT p.namefirst, p.namelast, salary AS total_salary
-FROM people AS p
-LEFT JOIN collegeplaying AS cp
-ON cp.playerid = p.playerid
-LEFT JOIN salaries AS s
-ON cp.playerid = p.playerid
-LEFT JOIN schools AS sc
-ON cp.schoolid = sc.schoolid
-WHERE sc.schoolname ILIKE '%Vanderbilt%'
-GROUP by p.playerid, salary
-ORDER BY total_salary DESC;						-- Issues: duplicate names, uncertain if total salary is accurate
+SELECT DISTINCT name, SUM(salary) AS total_salary
+FROM
+	(SELECT DISTINCT CONCAT(p.namefirst, ' ', p.namelast) AS name, SUM(salary) AS salary
+	FROM people AS p
+	INNER JOIN collegeplaying AS cp
+	ON cp.playerid = p.playerid
+	INNER JOIN salaries AS s
+	ON p.playerid = s.playerid
+	INNER JOIN schools AS sc
+	ON cp.schoolid = sc.schoolid
+	WHERE sc.schoolname ILIKE '%Vanderbilt%'
+	GROUP by name, salary
+	ORDER BY name DESC) AS subquery
+GROUP BY name
+ORDER BY total_salary DESC;					
 
 
 -- 4. Using the fielding table, group players into three groups based on their position: 
@@ -51,31 +57,31 @@ ORDER BY po DESC;
 -- 5. Find the average number of strikeouts per game by decade since 1920. 
 --Round the numbers you report to 2 decimal places. 
 --Do the same for home runs per game. Do you see any trends?
-						-- TREND: As time progressed, there was an increase in both so's and hr's. 
+						-- TREND: As time progressed, there was an increase in avg_so. War decades decreased avg_hr for ~8 years. 
 SELECT 
 	decade, 
-	ROUND((avg_so/g),2) AS avg_so_per_game,
-	ROUND((avg_hr/g),2) AS avg_hr_per_game
+	ROUND(AVG(so/g),2) AS avg_so,
+	ROUND(AVG(hr/g),2) AS avg_hr
 FROM
 	(SELECT g,
-	ROUND(AVG(b.so),2) AS avg_so,
-	ROUND(AVG(b.hr),2) AS avg_hr,
-	CASE WHEN yearid BETWEEN 1920 AND 1930 THEN 1920
-		WHEN yearid BETWEEN 1930 AND 1940 THEN 1930
-		WHEN yearid BETWEEN 1940 AND 1950 THEN 1940
-		WHEN yearid BETWEEN 1950 AND 1960 THEN 1950
-		WHEN yearid BETWEEN 1960 AND 1970 THEN 1960
-		WHEN yearid BETWEEN 1970 AND 1980 THEN 1970
-		WHEN yearid BETWEEN 1980 AND 1990 THEN 1980
-		WHEN yearid BETWEEN 1990 AND 2000 THEN 1990
-		WHEN yearid BETWEEN 2000 AND 2010 THEN 2000
-		WHEN yearid BETWEEN 2010 AND 2020 THEN 2010
+	t.so AS so,
+	t.hr AS hr,
+	CASE WHEN yearid BETWEEN 1920 AND 1929 THEN 1920
+		WHEN yearid BETWEEN 1930 AND 1939 THEN 1930
+		WHEN yearid BETWEEN 1940 AND 1949 THEN 1940
+		WHEN yearid BETWEEN 1950 AND 1959 THEN 1950
+		WHEN yearid BETWEEN 1960 AND 1969 THEN 1960
+		WHEN yearid BETWEEN 1970 AND 1979 THEN 1970
+		WHEN yearid BETWEEN 1980 AND 1989 THEN 1980
+		WHEN yearid BETWEEN 1990 AND 1999 THEN 1990
+		WHEN yearid BETWEEN 2000 AND 2009 THEN 2000
+		WHEN yearid BETWEEN 2010 AND 2019 THEN 2010
 		END AS decade
-FROM batting as b
+FROM teams as t
 WHERE yearid >= 1920
-GROUP BY decade, g) AS subquery
-GROUP BY decade, avg_so
-ORDER BY decade;
+GROUP BY g, yearid, so, hr) AS subquery
+GROUP BY decade
+ORDER BY decade; 
 
 
 
@@ -133,7 +139,7 @@ WHERE wswin = 'Y'
 AND yearid BETWEEN 1970 AND 2016
 GROUP BY name, w, wswin, yearid
 ORDER BY w) AS sub
-WHERE yearid <> 1981;
+WHERE yearid <> 1981;						------------All but one year - 1994
 --What percentage of the time?
 SELECT CAST((SELECT COUNT(*)
 			FROM (SELECT team_name, 
